@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SmartPack2D Simulator</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.1/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="panel input-panel" aria-label="Packing inputs">
+        <header class="brand">
+          <div>
+            <span class="eyebrow">SmartPack2D</span>
+            <h1>Cost Optimal Packing</h1>
+          </div>
+          <button id="loadDemo" class="ghost-button" type="button">Demo</button>
+        </header>
+
+        <section class="input-section">
+          <div class="section-title">
+            <h2>Bin Types</h2>
+            <button id="addBin" class="small-button" type="button">+ Bin</button>
+          </div>
+          <div id="binRows" class="row-stack"></div>
+        </section>
+
+        <section class="input-section">
+          <div class="section-title">
+            <h2>Pieces</h2>
+            <button id="addPiece" class="small-button" type="button">+ Piece</button>
+          </div>
+          <div id="pieceRows" class="row-stack"></div>
+        </section>
+
+        <section class="input-section settings-grid">
+          <label class="toggle-row">
+            <input id="allowRotation" type="checkbox" checked />
+            <span>Allow rotation</span>
+          </label>
+          <label>
+            <span>Search</span>
+            <select id="searchLevel">
+              <option value="balanced" selected>Balanced</option>
+              <option value="deep">Deep</option>
+              <option value="fast">Fast</option>
+            </select>
+          </label>
+        </section>
+
+        <button id="optimize" class="primary-button" type="button">Optimize</button>
+        <p id="message" class="message" role="status"></p>
+      </aside>
+
+      <main class="workspace">
+        <section class="metrics-bar" aria-label="Optimization metrics">
+          <div>
+            <span>Cost</span>
+            <strong id="metricCost">-</strong>
+          </div>
+          <div>
+            <span>Opened</span>
+            <strong id="metricBins">-</strong>
+          </div>
+          <div>
+            <span>Utilization</span>
+            <strong id="metricUtilization">-</strong>
+          </div>
+          <div>
+            <span>Placed</span>
+            <strong id="metricPlaced">-</strong>
+          </div>
+        </section>
+
+        <section class="viewport-panel" aria-label="Three.js packing viewport">
+          <canvas id="scene"></canvas>
+          <div id="pieceTip" class="piece-tip" hidden></div>
+        </section>
+
+        <section class="timeline-panel" aria-label="Packing timeline">
+          <button id="playToggle" class="tool-button" type="button">Play</button>
+          <button id="prevStep" class="tool-button" type="button">Prev</button>
+          <input id="stepSlider" type="range" min="0" max="0" value="0" />
+          <button id="nextStep" class="tool-button" type="button">Next</button>
+          <label class="speed-control">
+            <span>Speed</span>
+            <input id="speedSlider" type="range" min="1" max="5" value="3" />
+          </label>
+          <output id="stepLabel">0 / 0</output>
+        </section>
+      </main>
+
+      <aside class="panel result-panel" aria-label="Packing results">
+        <section>
+          <div class="section-title">
+            <h2>Best Plan</h2>
+          </div>
+          <dl class="result-list">
+            <div>
+              <dt>Objective</dt>
+              <dd id="objectiveText">-</dd>
+            </div>
+            <div>
+              <dt>Variant</dt>
+              <dd id="variantText">-</dd>
+            </div>
+            <div>
+              <dt>Waste</dt>
+              <dd id="wasteText">-</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section>
+          <div class="section-title">
+            <h2>Placements</h2>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Piece</th>
+                  <th>Bin</th>
+                  <th>Size</th>
+                  <th>Pos</th>
+                </tr>
+              </thead>
+              <tbody id="placementRows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section>
+          <div class="section-title">
+            <h2>Unplaced</h2>
+          </div>
+          <ul id="unplacedList" class="unplaced-list"></ul>
+        </section>
+      </aside>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
