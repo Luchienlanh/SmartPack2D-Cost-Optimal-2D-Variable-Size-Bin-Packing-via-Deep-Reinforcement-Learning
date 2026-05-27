@@ -1,1 +1,5 @@
 datasets-main
+__pycache__/
+*.pyc
+*.pth
+*.zip

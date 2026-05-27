@@ -1,7 +1,7 @@
 import time
 from env.packing_env import Packing
 
-def run_ffd_heuristic(bin_types, items, max_width=300, max_height=300, max_items=200):
+def run_ffd_heuristic(bin_types, items, max_width=300, max_height=300, max_items=200, allow_rotation=True):
     """
     Solves a 2DVSBPP instance using the First Fit Decreasing (FFD) heuristic.
     Maintains a replica environment to guarantee identical physical constraints and rules.
@@ -16,18 +16,19 @@ def run_ffd_heuristic(bin_types, items, max_width=300, max_height=300, max_items
     # 1. Sort the items in decreasing order of area (height * width)
     # We keep their original index so we can play the corresponding actions in the environment
     sorted_items = sorted(enumerate(items), key=lambda x: x[1][0] * x[1][1], reverse=True)
+    rotations = [False, True] if allow_rotation else [False]
     
     # Track the configuration of all opened bins to calculate utilization precisely
     opened_bins = [bin_types[0]]
     
     # 2. Iterate through sorted items and pack them sequentially
-    for orig_idx, (w, h) in sorted_items:
+    for orig_idx, (h, w) in sorted_items:
         placed = False
         
         # Try to place the item in the currently active bin
         # We test rotation = False (no rotation) and then rotation = True (rotated)
-        for rotated in [False, True]:
-            item_w, item_h = (h, w) if rotated else (w, h)
+        for rotated in rotations:
+            item_h, item_w = (w, h) if rotated else (h, w)
             
             # Search empty positions bottom-left first (which is how FFD operates)
             for x, y in sorted(env.empty_positions, key=lambda p: (p[0], p[1])):
@@ -45,8 +46,8 @@ def run_ffd_heuristic(bin_types, items, max_width=300, max_height=300, max_items
             cheapest_cost = float('inf')
             
             for b_idx, b_cfg in enumerate(bin_types):
-                for rot in [False, True]:
-                    iw, ih = (h, w) if rot else (w, h)
+                for rot in rotations:
+                    ih, iw = (w, h) if rot else (h, w)
                     if iw <= b_cfg['width'] and ih <= b_cfg['height']:
                         if b_cfg['cost'] < cheapest_cost:
                             cheapest_cost = b_cfg['cost']
@@ -58,8 +59,8 @@ def run_ffd_heuristic(bin_types, items, max_width=300, max_height=300, max_items
                 opened_bins.append(bin_types[cheapest_bin_idx])
                 
                 # Place the item in the fresh grid at (0, 0)
-                for rot in [False, True]:
-                    iw, ih = (h, w) if rot else (w, h)
+                for rot in rotations:
+                    ih, iw = (w, h) if rot else (h, w)
                     if env.can_place(0, 0, ih, iw):
                         env.place((orig_idx, rot))
                         break

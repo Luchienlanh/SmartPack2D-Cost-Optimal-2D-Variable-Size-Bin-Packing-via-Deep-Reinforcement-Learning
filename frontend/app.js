@@ -32,7 +32,7 @@ const els = {
   loadDemo: document.querySelector("#loadDemo"),
   optimize: document.querySelector("#optimize"),
   allowRotation: document.querySelector("#allowRotation"),
-  searchLevel: document.querySelector("#searchLevel"),
+  solverMode: document.querySelector("#solverMode"),
   message: document.querySelector("#message"),
   metricCost: document.querySelector("#metricCost"),
   metricBins: document.querySelector("#metricBins"),
@@ -176,7 +176,7 @@ function readModel() {
     bins,
     pieces,
     allowRotation: els.allowRotation.checked,
-    searchLevel: els.searchLevel.value,
+    solver: els.solverMode.value,
   };
 }
 
@@ -683,7 +683,8 @@ function updateResults(result) {
   els.metricUtilization.textContent = `${result.utilization.toFixed(1)}%`;
   els.metricPlaced.textContent = `${result.placements.length}/${result.placements.length + result.unplaced.length}`;
   els.objectiveText.textContent = result.objective;
-  els.variantText.textContent = `${result.variant} (${result.variantCount} variants)`;
+  els.variantText.textContent =
+    result.variantCount && result.variantCount > 1 ? `${result.variant} (${result.variantCount} variants)` : result.variant;
   els.wasteText.textContent = `${formatNumber(result.waste)} area units`;
 
   els.placementRows.replaceChildren(
@@ -1028,7 +1029,7 @@ function stopPlayback() {
   state.playTimer = null;
 }
 
-function optimize() {
+async function optimize() {
   stopPlayback();
   const model = readModel();
   const error = validateModel(model);
@@ -1036,12 +1037,29 @@ function optimize() {
     els.message.textContent = error;
     return;
   }
+  els.optimize.disabled = true;
+  els.message.textContent = "Solving through backend core...";
   const start = performance.now();
-  const result = solvePacking(model);
-  const duration = performance.now() - start;
-  state.result = result;
-  els.message.textContent = `Solved in ${duration.toFixed(1)} ms.`;
-  updateResults(result);
+  try {
+    const response = await fetch("/api/pack", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(model),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || "Backend request failed.");
+    }
+    const duration = performance.now() - start;
+    state.result = result;
+    const notes = result.notes && result.notes.length ? ` ${result.notes.join(" ")}` : "";
+    els.message.textContent = `Solved by backend in ${duration.toFixed(1)} ms.${notes}`;
+    updateResults(result);
+  } catch (error) {
+    els.message.textContent = `Backend error: ${error.message}`;
+  } finally {
+    els.optimize.disabled = false;
+  }
 }
 
 function bindActions() {
@@ -1055,9 +1073,9 @@ function bindActions() {
   });
   els.loadDemo.addEventListener("click", () => {
     loadDemoData();
-    optimize();
+    void optimize();
   });
-  els.optimize.addEventListener("click", optimize);
+  els.optimize.addEventListener("click", () => void optimize());
   els.stepSlider.addEventListener("input", () => {
     stopPlayback();
     setStep(Number(els.stepSlider.value));
@@ -1083,4 +1101,4 @@ function bindActions() {
 bindActions();
 loadDemoData();
 initScene();
-optimize();
+void optimize();

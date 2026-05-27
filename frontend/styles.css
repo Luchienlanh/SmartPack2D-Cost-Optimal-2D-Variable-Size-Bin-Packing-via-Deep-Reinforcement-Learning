@@ -199,6 +199,11 @@ select:focus {
   background: var(--accent-strong);
 }
 
+.primary-button:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
 .small-button,
 .ghost-button,
 .tool-button {
@@ -412,7 +417,7 @@ th {
   font-weight: 700;
 }
 
-@media (max-width: 1180px) {
+@media (max-width: 1320px) {
   .app-shell {
     grid-template-columns: minmax(280px, 330px) minmax(0, 1fr);
   }
