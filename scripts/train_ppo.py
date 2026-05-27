@@ -35,7 +35,7 @@ if __name__ == '__main__':
     checkpoint_path = os.path.join(root_dir, 'ppo_model.pth')
 
     # === Config ===
-    episodes = 1000
+    episodes = 50
     batch_size = 32
 
     # === Scan and Split Dataset ===

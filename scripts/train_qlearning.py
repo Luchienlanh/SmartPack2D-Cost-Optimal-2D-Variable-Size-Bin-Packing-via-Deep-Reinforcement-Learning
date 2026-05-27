@@ -28,7 +28,7 @@ if __name__ == '__main__':
     checkpoint_path = os.path.join(root_dir, 'ql_train.pth')
 
     # === Config ===
-    episodes = 1000
+    episodes = 50
 
     # === Scan and Split Dataset ===
     max_w, max_h, max_items, max_bin_types, dataset_files = scan_dataset_limits(dataset_dir)
