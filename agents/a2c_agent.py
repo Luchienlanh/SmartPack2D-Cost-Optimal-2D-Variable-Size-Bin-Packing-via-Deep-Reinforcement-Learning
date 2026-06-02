@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from utils.amp import autocast_context, create_grad_scaler
 from utils.device import device
 
 class A2CNetwork(nn.Module):
@@ -20,6 +21,7 @@ class A2CNetwork(nn.Module):
             nn.Conv2d(16,32,kernel_size=3,padding=1),
             nn.ReLU(),
             nn.MaxPool2d(2,2),
+            nn.AdaptiveAvgPool2d((4,4)),
             nn.Flatten()
         ).to(device)
 
@@ -51,6 +53,7 @@ class A2CNetwork(nn.Module):
             + list(self.critic.parameters()),
             lr=self.lr
         )
+        self.scaler = create_grad_scaler()
 
     def _calc_combined_size(self):
         with torch.no_grad():
@@ -80,7 +83,10 @@ class A2CNetwork(nn.Module):
         remain_np = remain.detach().cpu().numpy().reshape(1, -1) # => (1, N*2)
         remain_t = torch.from_numpy(remain_np).float().to(device)
 
-        logits, val = self.forward(frame_4d, remain_t)
+        with autocast_context():
+            logits, val = self.forward(frame_4d, remain_t)
+        logits = logits.float()
+        val = val.float()
         logits = logits.squeeze(0)
         val = val.squeeze(0)
 
@@ -118,9 +124,10 @@ class A2CNetwork(nn.Module):
         critic_loss = advantage.pow(2).mean()
         loss = actor_loss + critic_loss
 
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
+        self.optimizer.zero_grad(set_to_none=True)
+        self.scaler.scale(loss).backward()
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
         return loss.item()
 
     def train_one_episode(self, env, batch_size=32):
@@ -158,7 +165,7 @@ class A2CNetwork(nn.Module):
                     nr_np = next_remain.detach().cpu().numpy().reshape(1, -1)
                     nr_t = torch.from_numpy(nr_np).float().to(device)
 
-                    with torch.no_grad():
+                    with torch.no_grad(), autocast_context():
                         logits2, val2 = self.forward(nf_4d, nr_t)
                         next_val = val2.squeeze(0)
 

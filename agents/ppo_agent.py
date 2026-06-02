@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from utils.amp import autocast_context, create_grad_scaler
 from utils.device import device
 
 class PPOAgent(nn.Module):
@@ -29,6 +30,7 @@ class PPOAgent(nn.Module):
             nn.Conv2d(32, 32, kernel_size=3, padding=1),
             nn.ReLU(),
             nn.MaxPool2d(2, 2),
+            nn.AdaptiveAvgPool2d((4, 4)),
             nn.Flatten()
         ).to(device)
 
@@ -57,6 +59,7 @@ class PPOAgent(nn.Module):
         ).to(device)
 
         self.optimizer = optim.Adam(self.parameters(), lr=self.lr)
+        self.scaler = create_grad_scaler()
         self.MseLoss = nn.MSELoss()
 
     def _calc_combined_size(self):
@@ -89,7 +92,10 @@ class PPOAgent(nn.Module):
         frame_4d = frame.unsqueeze(0).unsqueeze(0).float().to(device)
         remain_2d = remain.view(1, -1).float().to(device)
 
-        logits, val = self.forward(frame_4d, remain_2d)
+        with torch.no_grad(), autocast_context():
+            logits, val = self.forward(frame_4d, remain_2d)
+        logits = logits.float()
+        val = val.float()
         logits = logits.squeeze(0)  # (action_size,)
         val = val.squeeze(0)
 
@@ -114,7 +120,10 @@ class PPOAgent(nn.Module):
         actions:     (B,)
         valid_masks: (B, action_size) - 0.0 cho valid, -1e9 cho invalid
         """
-        logits, values = self.forward(frames, items)
+        with autocast_context():
+            logits, values = self.forward(frames, items)
+        logits = logits.float()
+        values = values.float()
         masked_logits = logits + valid_masks
         dist = torch.distributions.Categorical(logits=masked_logits)
         log_probs = dist.log_prob(actions)
@@ -158,14 +167,14 @@ class PPOMemory:
         self.valid_masks = []
 
     def store(self, frame, item, action, log_prob, value, reward, done, valid_mask):
-        self.frames.append(frame)
-        self.items.append(item)
+        self.frames.append(frame.detach().cpu())
+        self.items.append(item.detach().cpu())
         self.actions.append(action)
-        self.log_probs.append(log_prob)
+        self.log_probs.append(log_prob.detach().cpu())
         self.values.append(value)
         self.rewards.append(reward)
         self.dones.append(done)
-        self.valid_masks.append(valid_mask)
+        self.valid_masks.append(valid_mask.detach().cpu())
 
     def clear(self):
         self.__init__()
@@ -216,7 +225,7 @@ def train_ppo_episode(env, agent, memory, batch_size=32):
             value=val.item(),
             reward=reward,
             done=False,
-            valid_mask=valid_mask.detach()
+            valid_mask=valid_mask
         )
 
         frame, remain = next_frame, next_remain
@@ -241,11 +250,11 @@ def train_ppo_episode(env, agent, memory, batch_size=32):
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
     # Chuyển buffer sang tensor
-    buf_frames = torch.stack(memory.frames).to(device)       # (T, 1, H, W)
-    buf_items = torch.stack(memory.items).to(device)         # (T, num_items*2)
-    buf_actions = torch.tensor(memory.actions, dtype=torch.long, device=device)
-    buf_old_logprobs = torch.stack(memory.log_probs).to(device)
-    buf_valid_masks = torch.stack(memory.valid_masks).to(device)
+    buf_frames = torch.stack(memory.frames)       # (T, 1, H, W), kept on CPU
+    buf_items = torch.stack(memory.items)         # (T, num_items*2), kept on CPU
+    buf_actions = torch.tensor(memory.actions, dtype=torch.long)
+    buf_old_logprobs = torch.stack(memory.log_probs)
+    buf_valid_masks = torch.stack(memory.valid_masks)
 
     # === Phase 3: PPO Update - K epochs x mini-batches ===
     total_loss = 0.0
@@ -260,13 +269,13 @@ def train_ppo_episode(env, agent, memory, batch_size=32):
             idx = perm[start:end]
 
             # Lấy mini-batch
-            mb_frames = buf_frames[idx]
-            mb_items = buf_items[idx]
-            mb_actions = buf_actions[idx]
-            mb_old_logprobs = buf_old_logprobs[idx]
+            mb_frames = buf_frames[idx].to(device)
+            mb_items = buf_items[idx].to(device)
+            mb_actions = buf_actions[idx].to(device)
+            mb_old_logprobs = buf_old_logprobs[idx].to(device)
             mb_advantages = advantages[idx]
             mb_returns = returns[idx]
-            mb_valid_masks = buf_valid_masks[idx]
+            mb_valid_masks = buf_valid_masks[idx].to(device)
 
             # Evaluate lại policy mới
             new_logprobs, state_values, dist_entropy = agent.evaluate(
@@ -287,11 +296,13 @@ def train_ppo_episode(env, agent, memory, batch_size=32):
 
             loss = actor_loss + 0.5 * critic_loss + 0.01 * entropy_loss
 
-            agent.optimizer.zero_grad()
-            loss.backward()
+            agent.optimizer.zero_grad(set_to_none=True)
+            agent.scaler.scale(loss).backward()
             # Gradient clipping để ổn định huấn luyện
+            agent.scaler.unscale_(agent.optimizer)
             torch.nn.utils.clip_grad_norm_(agent.parameters(), max_norm=0.5)
-            agent.optimizer.step()
+            agent.scaler.step(agent.optimizer)
+            agent.scaler.update()
 
             total_loss += loss.item()
 

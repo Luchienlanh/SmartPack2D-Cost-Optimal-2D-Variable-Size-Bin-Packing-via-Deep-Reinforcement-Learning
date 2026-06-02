@@ -12,6 +12,7 @@ from agents.a2c_agent import A2CNetwork, train_a2c_episode
 from utils.device import device
 from utils.data import load_2dvsbpp_instance, scan_dataset_limits, split_dataset_files
 from utils.io import save_torch_checkpoint
+from utils.amp import AMP_ENABLED, load_scaler_state
 
 def save_agent(agent, save_path):
     state_dict = {
@@ -20,7 +21,8 @@ def save_agent(agent, save_path):
         'frame_net_state_dict': agent.frame_net.state_dict(),
         'item_net_state_dict': agent.item_net.state_dict(),
         'optimizer_state_dict': agent.optimizer.state_dict(),
-        'gamma': agent.gamma
+        'gamma': agent.gamma,
+        'scaler_state_dict': agent.scaler.state_dict(),
     }
     save_torch_checkpoint(state_dict, save_path)
 
@@ -33,6 +35,7 @@ if __name__ == '__main__':
 
     # === Config ===
     episodes = 100
+    batch_size = 8
 
     # === Scan and Split Dataset ===
     max_w, max_h, max_items, max_bin_types, dataset_files = scan_dataset_limits(dataset_dir)
@@ -65,11 +68,12 @@ if __name__ == '__main__':
             agent.frame_net.load_state_dict(checkpoint['frame_net_state_dict'])
             agent.item_net.load_state_dict(checkpoint['item_net_state_dict'])
             agent.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            load_scaler_state(agent.scaler, checkpoint)
             print("Checkpoint loaded successfully. Resuming training...")
         except Exception as e:
             print(f"Failed to load checkpoint to resume: {e}. Starting training from scratch.")
 
-    print(f"Training A2C on: {device}")
+    print(f"Training A2C on: {device} | AMP={'enabled' if AMP_ENABLED else 'disabled'}")
     rewards = []
     best_rw = float('-inf')
     best_env_state = None
@@ -80,7 +84,7 @@ if __name__ == '__main__':
         bins, items = load_2dvsbpp_instance(file_path)
         
         env = Packing(bin_types=bins, items_or_height=items, max_width=max_w, max_height=max_h, max_items=max_items)
-        total_reward, sum_loss = train_a2c_episode(env, agent, batch_size=32)
+        total_reward, sum_loss = train_a2c_episode(env, agent, batch_size=batch_size)
         
         if total_reward > best_rw:
             best_rw = total_reward

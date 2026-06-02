@@ -12,6 +12,7 @@ from agents.ppo_agent import PPOAgent, PPOMemory, train_ppo_episode
 from utils.device import device
 from utils.data import load_2dvsbpp_instance, scan_dataset_limits, split_dataset_files
 from utils.io import save_torch_checkpoint
+from utils.amp import AMP_ENABLED, load_scaler_state
 
 def save_agent(agent, save_path):
     state_dict = {
@@ -24,6 +25,7 @@ def save_agent(agent, save_path):
         'eps_clip': agent.eps_clip,
         'lr': agent.lr,
         'K_epochs': agent.K_epochs,
+        'scaler_state_dict': agent.scaler.state_dict(),
     }
     save_torch_checkpoint(state_dict, save_path)
 
@@ -36,7 +38,7 @@ if __name__ == '__main__':
 
     # === Config ===
     episodes = 100
-    batch_size = 32
+    batch_size = 8
 
     # === Scan and Split Dataset ===
     max_w, max_h, max_items, max_bin_types, dataset_files = scan_dataset_limits(dataset_dir)
@@ -72,11 +74,12 @@ if __name__ == '__main__':
             agent.actor.load_state_dict(checkpoint['actor_state_dict'])
             agent.critic.load_state_dict(checkpoint['critic_state_dict'])
             agent.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            load_scaler_state(agent.scaler, checkpoint)
             print("Checkpoint loaded successfully. Resuming training...")
         except Exception as e:
             print(f"Failed to load checkpoint to resume: {e}. Starting training from scratch.")
 
-    print(f"Training PPO on: {device}")
+    print(f"Training PPO on: {device} | AMP={'enabled' if AMP_ENABLED else 'disabled'}")
     print(f"Total parameters: {sum(p.numel() for p in agent.parameters()):,}")
 
     # === Training Loop ===
