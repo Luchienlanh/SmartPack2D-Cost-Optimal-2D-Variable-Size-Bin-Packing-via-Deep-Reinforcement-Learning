@@ -102,6 +102,8 @@ if __name__ == '__main__':
             best_env_state = {
                 'placed_items': env.placed_items.copy(),
                 'total_bin_cost': env.total_bin_cost,
+                'opened_bins': env.opened_bins.copy(),
+                'opened_bins_count': env.opened_bins_count,
                 'width': env.width,
                 'height': env.height,
                 'bin_types': env.bin_types,
@@ -125,6 +127,8 @@ if __name__ == '__main__':
         )
         env.placed_items = best_env_state['placed_items']
         env.total_bin_cost = best_env_state['total_bin_cost']
+        env.opened_bins = best_env_state['opened_bins']
+        env.opened_bins_count = best_env_state['opened_bins_count']
         env.width = best_env_state['width']
         env.height = best_env_state['height']
         

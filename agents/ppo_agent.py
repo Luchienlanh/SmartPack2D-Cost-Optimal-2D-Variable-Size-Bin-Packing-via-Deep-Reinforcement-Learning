@@ -197,10 +197,13 @@ def train_ppo_episode(env, agent, memory, batch_size=32):
     frame, remain = env.get_state()
     done = False
     total_reward = 0
+    max_steps = max(1, env.num_items * 3 + len(bin_types) * 2)
+    steps = 0
     memory.clear()
 
     # === Phase 1: Thu thập kinh nghiệm (Rollout) ===
-    while not done:
+    while not done and steps < max_steps:
+        steps += 1
         valid_idx = env.get_valid_actions(action_space)
         if not valid_idx:
             done = True
@@ -231,6 +234,9 @@ def train_ppo_episode(env, agent, memory, batch_size=32):
         frame, remain = next_frame, next_remain
         total_reward += reward
         done = env.is_done()
+
+    if steps >= max_steps and not done:
+        total_reward -= 10.0
 
     # Đánh dấu bước cuối cùng là terminal
     if len(memory) > 0:

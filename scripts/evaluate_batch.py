@@ -12,6 +12,7 @@ from env.packing_env import Packing
 from utils.device import device
 from utils.data import load_2dvsbpp_instance, scan_dataset_limits, split_dataset_files
 from utils.heuristics import run_ffd_heuristic
+from utils.metrics import summarize_packing
 from agents.ppo_agent import PPOAgent
 from agents.a2c_agent import A2CNetwork
 from agents.pg_agent import PolicyNetwork
@@ -47,7 +48,10 @@ def evaluate_rl_agent(agent_type, agent, file_path, max_w, max_h, max_items, max
     action_space = [(i, rot) for i in range(max_items) for rot in [False, True]] + [("open", b_idx) for b_idx in range(len(bins))]
     
     start_time = time.time()
-    while not env.is_done():
+    max_steps = max(1, env.num_items * 3 + len(bins) * 2)
+    steps = 0
+    while not env.is_done() and steps < max_steps:
+        steps += 1
         valid_idx = env.get_valid_actions(action_space)
         if not valid_idx:
             break
@@ -66,17 +70,9 @@ def evaluate_rl_agent(agent_type, agent, file_path, max_w, max_h, max_items, max
         env.place(action_space[a_idx])
         
     exec_time = time.time() - start_time
-    num_used_bins = max(env.opened_bins_count, max((item[6] for item in env.placed_items), default=1))
-    total_piece_area = sum(item[3] * item[4] for item in env.placed_items)
-    total_bin_area = sum(b['width'] * b['height'] for b in bins[:num_used_bins])
-    
-    return {
-        'cost': env.total_bin_cost,
-        'bins_opened': num_used_bins,
-        'utilization': (total_piece_area / total_bin_area * 100) if total_bin_area > 0 else 0.0,
-        'success_rate': (len(env.placed_items) / len(items)) * 100 if items else 0.0,
-        'time': exec_time
-    }
+    result = summarize_packing(env, total_items=len(items), exec_time=exec_time)
+    result["truncated"] = steps >= max_steps and not env.is_done()
+    return result
 
 def print_summary_table(results):
     print("\n" + "="*80 + "\n                    📊 BATCH EVALUATION COMPARISON RESULTS\n" + "="*80)
@@ -123,8 +119,8 @@ if __name__ == '__main__':
             if agent is not None:
                 try:
                     solvers[name].append(evaluate_rl_agent(name.split()[-1][1:-1], agent, f_path, max_w, max_h, max_items, max_bin_types))
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"Failed to evaluate {name} on {os.path.basename(f_path)}: {e}")
         if (idx + 1) % 5 == 0 or (idx + 1) == len(eval_files):
             print(f"Evaluated {idx + 1}/{len(eval_files)} files...")
             

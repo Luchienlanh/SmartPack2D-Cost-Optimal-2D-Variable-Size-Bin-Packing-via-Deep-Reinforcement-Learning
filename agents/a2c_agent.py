@@ -140,8 +140,11 @@ class A2CNetwork(nn.Module):
         total_reward = 0
         transitions = []
         sum_loss = 0
+        max_steps = max(1, env.num_items * 3 + len(bin_types) * 2)
+        steps = 0
 
-        while not done:
+        while not done and steps < max_steps:
+            steps += 1
             valid_idx = env.get_valid_actions(action_space)
             if not valid_idx:
                 done = True
@@ -172,6 +175,9 @@ class A2CNetwork(nn.Module):
                 lgs, vals, rws = zip(*transitions)
                 sum_loss += self.update_ac(lgs, vals, rws, next_val, done)
                 transitions = []
+
+        if steps >= max_steps and not done:
+            total_reward -= 10.0
 
         if len(transitions) > 0:
             next_val = torch.tensor(0.0, device=device)

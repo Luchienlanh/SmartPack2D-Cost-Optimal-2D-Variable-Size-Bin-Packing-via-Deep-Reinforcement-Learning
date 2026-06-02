@@ -54,8 +54,11 @@ def train_q_episode(env, agent):
     env.reset()
     state = agent.get_state(env)
     total_rw = 0
+    max_steps = max(1, env.num_items * 3)
+    steps = 0
 
-    while not env.is_done():
+    while not env.is_done() and steps < max_steps:
+        steps += 1
         action = agent.choose_action(state, env)
         if action is None:
             break

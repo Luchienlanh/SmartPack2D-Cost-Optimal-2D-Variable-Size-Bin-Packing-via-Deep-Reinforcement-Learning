@@ -10,6 +10,8 @@ from urllib.parse import unquote, urlparse
 
 import torch
 
+from agents.a2c_agent import A2CNetwork
+from agents.pg_agent import PolicyNetwork
 from agents.ppo_agent import PPOAgent
 from env.packing_env import Packing
 from utils.device import device
@@ -18,14 +20,18 @@ from utils.heuristics import run_ffd_heuristic
 
 ROOT_DIR = Path(__file__).resolve().parent
 FRONTEND_DIR = ROOT_DIR / "frontend"
-PPO_MODEL_PATH = ROOT_DIR / "ppo_model.pth"
+MODEL_PATHS = {
+    "ppo": ROOT_DIR / "ppo_model.pth",
+    "a2c": ROOT_DIR / "a2c_train.pth",
+    "pg": ROOT_DIR / "train_plc.pth",
+}
 
-PPO_MAX_WIDTH = 300
-PPO_MAX_HEIGHT = 300
-PPO_MAX_ITEMS = 200
-PPO_MAX_BIN_TYPES = 5
+RL_MAX_WIDTH = 300
+RL_MAX_HEIGHT = 300
+RL_MAX_ITEMS = 200
+RL_MAX_BIN_TYPES = 5
 
-_ppo_agent: PPOAgent | None = None
+_rl_agents: dict[str, torch.nn.Module] = {}
 
 
 class ApiError(Exception):
@@ -101,28 +107,68 @@ def parse_problem(payload: dict) -> tuple[list[dict], list[tuple[int, int]], lis
     return bins, items, item_meta, allow_rotation, solver
 
 
-def load_ppo_agent() -> PPOAgent:
-    global _ppo_agent
-    if _ppo_agent is not None:
-        return _ppo_agent
-    if not PPO_MODEL_PATH.exists():
-        raise ApiError(HTTPStatus.BAD_REQUEST, "ppo_model.pth was not found.")
+def normalize_rl_solver(solver: str) -> str:
+    if solver in {"policy_gradient", "policy-gradient"}:
+        return "pg"
+    return solver
 
-    action_size = (PPO_MAX_ITEMS * 2) + PPO_MAX_BIN_TYPES
-    agent = PPOAgent(
-        height=PPO_MAX_HEIGHT,
-        width=PPO_MAX_WIDTH,
-        action_size=action_size,
-        num_items=PPO_MAX_ITEMS,
-    ).to(device)
-    checkpoint = torch.load(PPO_MODEL_PATH, map_location=device)
-    agent.frame_net.load_state_dict(checkpoint["frame_net_state_dict"])
-    agent.item_net.load_state_dict(checkpoint["item_net_state_dict"])
-    agent.actor.load_state_dict(checkpoint["actor_state_dict"])
-    agent.critic.load_state_dict(checkpoint["critic_state_dict"])
+
+def load_rl_agent(solver: str) -> torch.nn.Module:
+    solver = normalize_rl_solver(solver)
+    if solver in _rl_agents:
+        return _rl_agents[solver]
+
+    checkpoint_path = MODEL_PATHS[solver]
+    if not checkpoint_path.exists():
+        raise ApiError(HTTPStatus.BAD_REQUEST, f"{checkpoint_path.name} was not found.")
+
+    action_size = (RL_MAX_ITEMS * 2) + RL_MAX_BIN_TYPES
+    if solver == "ppo":
+        agent = PPOAgent(
+            height=RL_MAX_HEIGHT,
+            width=RL_MAX_WIDTH,
+            action_size=action_size,
+            num_items=RL_MAX_ITEMS,
+        ).to(device)
+    elif solver == "a2c":
+        agent = A2CNetwork(
+            height=RL_MAX_HEIGHT,
+            width=RL_MAX_WIDTH,
+            action_size=action_size,
+            num_items=RL_MAX_ITEMS,
+        ).to(device)
+    else:
+        agent = PolicyNetwork(
+            height=RL_MAX_HEIGHT,
+            width=RL_MAX_WIDTH,
+            action_size=action_size,
+            num_items=RL_MAX_ITEMS,
+        ).to(device)
+
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    for key, module_name in [
+        ("frame_net_state_dict", "frame_net"),
+        ("item_net_state_dict", "item_net"),
+        ("actor_state_dict", "actor"),
+        ("actor_net_state_dict", "actor"),
+        ("critic_state_dict", "critic"),
+        ("critic_net_state_dict", "critic"),
+        ("policy_state_dict", "policy_head"),
+    ]:
+        module = getattr(agent, module_name, None)
+        if key in checkpoint and module is not None:
+            module.load_state_dict(checkpoint[key])
+
     agent.eval()
-    _ppo_agent = agent
+    _rl_agents[solver] = agent
     return agent
+
+
+def run_rl_forward(agent: torch.nn.Module, solver: str, frame_4d: torch.Tensor, remain_2d: torch.Tensor) -> torch.Tensor:
+    output = agent(frame_4d, remain_2d)
+    if normalize_rl_solver(solver) in {"ppo", "a2c"}:
+        return output[0]
+    return output
 
 
 def bin_can_fit_remaining(bin_cfg: dict, remain_items: list[list[int]], num_items: int, allow_rotation: bool) -> bool:
@@ -137,7 +183,7 @@ def bin_can_fit_remaining(bin_cfg: dict, remain_items: list[list[int]], num_item
     return False
 
 
-def constrain_ppo_valid_actions(
+def constrain_rl_valid_actions(
     env: Packing,
     action_space: list[tuple],
     valid_idx: list[int],
@@ -181,35 +227,41 @@ def solve_with_ffd(bins: list[dict], items: list[tuple[int, int]], item_meta: li
     )
 
 
-def solve_with_ppo(bins: list[dict], items: list[tuple[int, int]], item_meta: list[dict], allow_rotation: bool) -> dict:
-    if len(items) > PPO_MAX_ITEMS:
-        raise ApiError(HTTPStatus.BAD_REQUEST, f"PPO supports up to {PPO_MAX_ITEMS} pieces.")
-    if len(bins) > PPO_MAX_BIN_TYPES:
-        raise ApiError(HTTPStatus.BAD_REQUEST, f"PPO supports up to {PPO_MAX_BIN_TYPES} bin types.")
-    if max(bin_cfg["width"] for bin_cfg in bins) > PPO_MAX_WIDTH or max(bin_cfg["height"] for bin_cfg in bins) > PPO_MAX_HEIGHT:
-        raise ApiError(HTTPStatus.BAD_REQUEST, "PPO checkpoint expects bins no larger than 300 x 300.")
+def solve_with_rl(solver: str, bins: list[dict], items: list[tuple[int, int]], item_meta: list[dict], allow_rotation: bool) -> dict:
+    solver = normalize_rl_solver(solver)
+    if len(items) > RL_MAX_ITEMS:
+        raise ApiError(HTTPStatus.BAD_REQUEST, f"{solver.upper()} supports up to {RL_MAX_ITEMS} pieces.")
+    if len(bins) > RL_MAX_BIN_TYPES:
+        raise ApiError(HTTPStatus.BAD_REQUEST, f"{solver.upper()} supports up to {RL_MAX_BIN_TYPES} bin types.")
+    if max(bin_cfg["width"] for bin_cfg in bins) > RL_MAX_WIDTH or max(bin_cfg["height"] for bin_cfg in bins) > RL_MAX_HEIGHT:
+        raise ApiError(HTTPStatus.BAD_REQUEST, f"{solver.upper()} checkpoint expects bins no larger than 300 x 300.")
 
-    agent = load_ppo_agent()
+    agent = load_rl_agent(solver)
     env = Packing(
         bin_types=bins,
         items_or_height=items,
-        max_width=PPO_MAX_WIDTH,
-        max_height=PPO_MAX_HEIGHT,
-        max_items=PPO_MAX_ITEMS,
+        max_width=RL_MAX_WIDTH,
+        max_height=RL_MAX_HEIGHT,
+        max_items=RL_MAX_ITEMS,
     )
-    action_space = [(i, rot) for i in range(PPO_MAX_ITEMS) for rot in [False, True]]
+    action_space = [(i, rot) for i in range(RL_MAX_ITEMS) for rot in [False, True]]
     action_space.extend(("open", b_idx) for b_idx in range(len(bins)))
 
-    opened_bins = [bins[0]]
     max_open_bins = max(1, len(items)) + 1
-    max_steps = max(80, len(items) * 8 + 20)
+    max_steps = max(80, len(items) * 3 + len(bins) * 2)
     notes: list[str] = []
 
     for _ in range(max_steps):
         if env.is_done():
             break
 
-        valid_idx = constrain_ppo_valid_actions(env, action_space, env.get_valid_actions(action_space), bins, allow_rotation)
+        valid_idx = constrain_rl_valid_actions(
+            env,
+            action_space,
+            env.get_valid_actions(action_space, allow_rotation=allow_rotation),
+            bins,
+            allow_rotation,
+        )
         if env.opened_bins_count >= max_open_bins:
             valid_idx = [idx for idx in valid_idx if action_space[idx][0] != "open"]
         if not valid_idx:
@@ -219,27 +271,25 @@ def solve_with_ppo(bins: list[dict], items: list[tuple[int, int]], item_meta: li
         frame_4d = frame.unsqueeze(0).unsqueeze(0).float().to(device)
         remain_2d = remain.view(1, -1).float().to(device)
         with torch.no_grad():
-            logits, _ = agent(frame_4d, remain_2d)
-        logits = logits.squeeze(0)
+            logits = run_rl_forward(agent, solver, frame_4d, remain_2d)
+        logits = logits.squeeze(0).float()
 
         mask = torch.full_like(logits, -1e9)
         mask[valid_idx] = 0.0
         action_index = int(torch.argmax(logits + mask).item())
         action = action_space[action_index]
 
-        if action[0] == "open":
-            opened_bins.append(bins[action[1]])
         env.place(action)
     else:
-        notes.append(f"PPO stopped after the safety limit of {max_steps} actions.")
+        notes.append(f"{solver.upper()} stopped after the safety limit of {max_steps} actions.")
 
     return serialize_result(
         placed_items=env.placed_items,
-        opened_bins=opened_bins,
+        opened_bins=env.opened_bins,
         item_meta=item_meta,
         total_cost=env.total_bin_cost,
-        objective="Core Packing environment with PPO checkpoint",
-        variant="backend/ppo",
+        objective=f"Core Packing environment with {solver.upper()} checkpoint",
+        variant=f"backend/{solver}",
         notes=notes,
     )
 
@@ -335,11 +385,49 @@ def serialize_result(
     }
 
 
+def result_rank(result: dict) -> tuple:
+    return (
+        len(result["unplaced"]),
+        float(result["totalCost"]),
+        len(result["bins"]),
+        float(result["waste"]),
+        -float(result["utilization"]),
+    )
+
+
+def choose_rotation_result(rotation_result: dict, no_rotation_result: dict) -> dict:
+    if result_rank(no_rotation_result) < result_rank(rotation_result):
+        selected = no_rotation_result
+        selected["variant"] = f"{selected['variant']}/no-rotation-selected"
+        selected["notes"] = [
+            *selected.get("notes", []),
+            "Rotation was allowed, but the non-rotating candidate had a better objective.",
+        ]
+        return selected
+
+    rotation_result["notes"] = [
+        *rotation_result.get("notes", []),
+        "Rotation was allowed and the rotating action space was selected.",
+    ]
+    return rotation_result
+
+
 def solve_payload(payload: dict) -> dict:
     bins, items, item_meta, allow_rotation, solver = parse_problem(payload)
-    if solver == "ppo":
-        return solve_with_ppo(bins, items, item_meta, allow_rotation)
+    solver = normalize_rl_solver(solver)
+    if solver in MODEL_PATHS:
+        if allow_rotation:
+            return choose_rotation_result(
+                solve_with_rl(solver, bins, items, item_meta, True),
+                solve_with_rl(solver, bins, items, item_meta, False),
+            )
+        return solve_with_rl(solver, bins, items, item_meta, allow_rotation)
     if solver in {"ffd", "fast", "balanced", "deep", "core"}:
+        if allow_rotation:
+            return choose_rotation_result(
+                solve_with_ffd(bins, items, item_meta, True),
+                solve_with_ffd(bins, items, item_meta, False),
+            )
         return solve_with_ffd(bins, items, item_meta, allow_rotation)
     raise ApiError(HTTPStatus.BAD_REQUEST, f"Unknown solver '{solver}'.")
 
@@ -360,7 +448,11 @@ class PackingRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         if parsed.path == "/api/health":
-            self.write_json({"ok": True, "device": str(device), "ppoModel": PPO_MODEL_PATH.exists()})
+            self.write_json({
+                "ok": True,
+                "device": str(device),
+                "models": {name: path.exists() for name, path in MODEL_PATHS.items()},
+            })
             return
         self.serve_static(parsed.path)
 

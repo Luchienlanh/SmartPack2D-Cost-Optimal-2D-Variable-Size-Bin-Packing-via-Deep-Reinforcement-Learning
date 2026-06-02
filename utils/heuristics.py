@@ -1,5 +1,6 @@
 import time
 from env.packing_env import Packing
+from utils.metrics import summarize_packing
 
 def run_ffd_heuristic(bin_types, items, max_width=300, max_height=300, max_items=200, allow_rotation=True):
     """
@@ -17,9 +18,6 @@ def run_ffd_heuristic(bin_types, items, max_width=300, max_height=300, max_items
     # We keep their original index so we can play the corresponding actions in the environment
     sorted_items = sorted(enumerate(items), key=lambda x: x[1][0] * x[1][1], reverse=True)
     rotations = [False, True] if allow_rotation else [False]
-    
-    # Track the configuration of all opened bins to calculate utilization precisely
-    opened_bins = [bin_types[0]]
     
     # 2. Iterate through sorted items and pack them sequentially
     for orig_idx, (h, w) in sorted_items:
@@ -56,7 +54,6 @@ def run_ffd_heuristic(bin_types, items, max_width=300, max_height=300, max_items
             if cheapest_bin_idx is not None:
                 # Open the new bin in the environment
                 env.place(("open", cheapest_bin_idx))
-                opened_bins.append(bin_types[cheapest_bin_idx])
                 
                 # Place the item in the fresh grid at (0, 0)
                 for rot in rotations:
@@ -71,19 +68,4 @@ def run_ffd_heuristic(bin_types, items, max_width=300, max_height=300, max_items
                 
     exec_time = time.time() - start_time
     
-    # Calculate precise Space Utilization Rate (%)
-    total_piece_area = sum(item[3] * item[4] for item in env.placed_items)
-    total_bin_area = sum(b['width'] * b['height'] for b in opened_bins)
-    utilization = (total_piece_area / total_bin_area * 100) if total_bin_area > 0 else 0.0
-    
-    return {
-        'cost': env.total_bin_cost,
-        'bins_opened': env.opened_bins_count,
-        'utilization': utilization,
-        'placed_count': len(env.placed_items),
-        'total_count': len(items),
-        'success_rate': (len(env.placed_items) / len(items)) * 100 if len(items) > 0 else 0.0,
-        'time': exec_time,
-        'placed_items': env.placed_items,
-        'opened_bins': opened_bins
-    }
+    return summarize_packing(env, total_items=len(items), exec_time=exec_time)

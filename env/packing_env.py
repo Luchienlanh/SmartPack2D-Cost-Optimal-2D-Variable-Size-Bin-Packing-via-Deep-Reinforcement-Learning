@@ -31,6 +31,7 @@ class Packing:
     def reset(self):
         # Modern VS-BPP reset
         self.placed_items = []
+        self.opened_bins = [self.bin_types[0]]
         self.opened_bins_count = 1
         self.total_bin_cost = self.bin_types[0]['cost']
         
@@ -57,6 +58,7 @@ class Packing:
         self.empty_positions = [(0, 0)]
         
         self.opened_bins_count += 1
+        self.opened_bins.append(bin_cfg)
         self.total_bin_cost += bin_cfg['cost']
         
         # Return negative cost penalty (scaled by 100)
@@ -183,29 +185,55 @@ class Packing:
         return padded_frame, remain_items_tensor 
 
     # Find valid actions
-    def get_valid_actions(self, action_space):
-        valid_actions = []
+    def get_valid_actions(self, action_space, allow_rotation=True):
+        placement_actions = []
+        open_actions = []
         for idx, act in enumerate(action_space):
             # Check action type
             if act[0] == "open":
-                # Open bin is valid only if there are items left to pack
-                if not self.is_done():
-                    valid_actions.append(idx)
+                # Opening a new bin is valid only when the active bin cannot
+                # place any remaining item. This prevents agents from learning
+                # to spam "open" actions instead of packing.
+                if not self.is_done() and self.bin_type_can_fit_remaining(act[1], allow_rotation=allow_rotation):
+                    open_actions.append(idx)
             else:
                 # Placement action: act is (item_idx, rotated)
                 item_idx = act[0]
                 rotated = act[1]
+                if rotated and not allow_rotation:
+                    continue
                 if item_idx < self.num_items and self.remain_items[item_idx] != [0, 0]:
                     h, w = self.remain_items[item_idx]
                     if rotated:
                         h, w = w, h
                     if any(self.can_place(x, y, h, w) for x, y in self.empty_positions):
-                        valid_actions.append(idx)
-        return valid_actions
+                        placement_actions.append(idx)
+
+        return placement_actions if placement_actions else open_actions
+
+    def bin_type_can_fit_remaining(self, bin_type_idx, allow_rotation=True):
+        if bin_type_idx >= len(self.bin_types):
+            return False
+
+        bin_cfg = self.bin_types[bin_type_idx]
+        bin_h = bin_cfg['height']
+        bin_w = bin_cfg['width']
+
+        for item_idx in range(self.num_items):
+            h, w = self.remain_items[item_idx]
+            if [h, w] == [0, 0]:
+                continue
+            if h <= bin_h and w <= bin_w:
+                return True
+            if allow_rotation and w <= bin_h and h <= bin_w:
+                return True
+        return False
 
     def render(self):
         # Find all bins used
-        bins_used = set(item[6] for item in self.placed_items) if self.placed_items and len(self.placed_items[0]) > 6 else {1}
+        bins_used = set(range(1, self.opened_bins_count + 1))
+        if self.placed_items and len(self.placed_items[0]) > 6:
+            bins_used.update(item[6] for item in self.placed_items)
         num_plots = len(bins_used)
         
         fig, axes = plt.subplots(1, num_plots, figsize=(4 * num_plots, 4), squeeze=False)
@@ -223,8 +251,9 @@ class Packing:
                 ax.add_patch(rect)
                 ax.text(x + l / 2, y + w / 2, f"{l}×{w}", ha='center', va='center', fontsize=8)
                 
-            ax.set_xlim(0, self.height)
-            ax.set_ylim(0, self.width)
+            bin_cfg = self.opened_bins[b_num - 1] if b_num - 1 < len(self.opened_bins) else {'height': self.height, 'width': self.width}
+            ax.set_xlim(0, bin_cfg['height'])
+            ax.set_ylim(0, bin_cfg['width'])
             ax.set_xlabel('Length')
             ax.set_ylabel('Width')
             ax.set_title(f'Bin {b_num}')

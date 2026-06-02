@@ -131,8 +131,11 @@ class PolicyNetwork(nn.Module):
 
         log_probs = []
         rewards = []
+        max_steps = max(1, env.num_items * 3 + len(bin_types) * 2)
+        steps = 0
 
-        while not done:
+        while not done and steps < max_steps:
+            steps += 1
             valid_actions = env.get_valid_actions(action_space)
             if not valid_actions:
                 break
@@ -152,6 +155,10 @@ class PolicyNetwork(nn.Module):
 
             if env.is_done():
                 done = True
+
+        if steps >= max_steps and not done:
+            rewards.append(-10.0)
+            total_reward -= 10.0
 
         if log_probs:
             self.update_policy(log_probs, rewards)
