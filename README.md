@@ -11,6 +11,14 @@ The system can:
 - Visualize packing layouts in a browser.
 - Print model predictions for a single benchmark instance from the command line.
 
+## SmartPack2D Screenshots
+
+These screenshots are captured from the actual SmartPack2D web interface served by `server.py`.
+
+| Desktop dashboard | Mobile responsive view |
+| --- | --- |
+| <img src="./docs/images/smartpack2d-dashboard.png" alt="SmartPack2D desktop dashboard showing solved 2D bin packing layout" width="520"> | <img src="./docs/images/smartpack2d-mobile.png" alt="SmartPack2D mobile responsive view showing inputs, metrics, 3D scene, and placements" width="220"> |
+
 ## Visual References
 
 The diagrams below are externally hosted references that make the 2D bin packing task easier to read at a glance: item sets, packed-bin output, remaining free rectangles, and neural/heuristic layout examples.
