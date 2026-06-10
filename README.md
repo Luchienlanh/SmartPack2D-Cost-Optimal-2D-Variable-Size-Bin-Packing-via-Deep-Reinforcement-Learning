@@ -11,6 +11,20 @@ The system can:
 - Visualize packing layouts in a browser.
 - Print model predictions for a single benchmark instance from the command line.
 
+## Visual References
+
+The diagrams below are externally hosted references that make the 2D bin packing task easier to read at a glance: item sets, packed-bin output, remaining free rectangles, and neural/heuristic layout examples.
+
+| Input parts and packed output | Maximal-rectangles free-space tracking |
+| --- | --- |
+| <img src="https://algorist.com/images/figures/bin-packing-L.png" alt="Bin packing input parts" width="320"><br><img src="https://algorist.com/images/figures/bin-packing-R.png" alt="Bin packing packed output" width="320"> | <img src="https://planetcalc.com/users/2/1583599542.JPG" alt="Maximal rectangles free-space illustration" width="320"> |
+| Source: [Stony Brook Algorithm Repository, Bin Packing](https://algorist.com/problems/Bin_Packing.html) | Source: [PLANETCALC, 2D Bin Packing Problem Solver](https://planetcalc.com/8634/) |
+
+| Problem representation | Learned/heuristic packing layouts |
+| --- | --- |
+| <img src="https://mdpi-res.com/electronics/electronics-14-01956/article_deploy/html/images/electronics-14-01956-g001.png" alt="2D bin packing problem representation" width="360"> | <img src="https://mdpi-res.com/electronics/electronics-14-01956/article_deploy/html/images/electronics-14-01956-g009.png" alt="Example 2D bin packing layouts" width="360"> |
+| Source: [Kaleta and Sliwinski, Electronics 2025, Figure 1](https://www.mdpi.com/2079-9292/14/10/1956) | Source: [Kaleta and Sliwinski, Electronics 2025, Figure 9](https://www.mdpi.com/2079-9292/14/10/1956) |
+
 ## Project Structure
 
 ```text
@@ -467,4 +481,3 @@ For frontend inference, the backend opens new bins when no valid placement remai
 - JavaScript
 - Three.js
 - HTML/CSS
-
