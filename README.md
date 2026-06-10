@@ -15,9 +15,7 @@ The system can:
 
 These screenshots are captured from the actual SmartPack2D web interface served by `server.py`.
 
-| Desktop dashboard | Mobile responsive view |
-| --- | --- |
-| <img src="./docs/images/smartpack2d-dashboard.png" alt="SmartPack2D desktop dashboard showing solved 2D bin packing layout" width="520"> | <img src="./docs/images/smartpack2d-mobile.png" alt="SmartPack2D mobile responsive view showing inputs, metrics, 3D scene, and placements" width="220"> |
+<img src="./docs/images/smartpack2d-dashboard.png" alt="SmartPack2D desktop dashboard showing solved 2D bin packing layout" width="760">
 
 ## Visual References
 
